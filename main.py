@@ -1,7 +1,7 @@
 import streamlit as st
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.agents import create_tool_calling_agent, AgentExecutor
@@ -9,8 +9,13 @@ from tools import search_tool, wiki_tool, save_tool
 from PyPDF2 import PdfReader
 import mysql.connector
 import bcrypt
+import os
 
 load_dotenv()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY not found in .env file")
 
 conn = mysql.connector.connect(
     host="localhost",
@@ -103,113 +108,118 @@ def extract_text_from_document(file) -> str:
     return text
 
 
-llm = ChatAnthropic(model="claude-3-5-sonnet-20241022")
 
-parser = PydanticOutputParser(pydantic_object=ResearchResponse)
-
-prompt = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            """
-            You are a research assistant that helps summarize and analyze documents.
-            
-            If the user provides a query → answer it using ONLY the document content.
-            If the user provides no query → summarize the document in ≤150 words.
-            The summary should include clear sections if possible: Introduction, Key Points, Conclusion.
-
-            If the user asks for 'Challenge Me', generate 3 logic or comprehension questions from the document, 
-            wait for user answers, then evaluate each response with justification (refer to document content).
-
-            Wrap the output in this format and provide no other text:\n{format_instructions}
-            """,
-        ),  # 🪄 improved prompt with sections + challenge mode
-        ("placeholder", "{chat_history}"),
-        ("human", "{query}"),
-        ("placeholder", "{agent_scratchpad}"),
-    ]
-).partial(format_instructions=parser.get_format_instructions())
-
-tools = [search_tool, wiki_tool, save_tool]
-
-agent = create_tool_calling_agent(
-    llm=llm,
-    prompt=prompt,
-    tools=tools
-)
-
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-
-#-----------------Streamlit began ----------------------
-st.set_page_config(page_title="Research Assistant", layout="wide")
-st.title("Smart Research Assistant")
-
-upload_file = st.file_uploader("Upload a pdf or TXT document", type=["pdf", "txt"])
-
-if upload_file:
-    document_text = extract_text_from_document(upload_file)
-
-
-    st.subheader("Document Preview")
-    # st.write(document_text[:500] + ("..." if len(document_text) > 1000 else ""))
-
-    mode = st.radio(
-        "Choose a mode:",
-        options = ["Query", "Just Summarize", "Challenge Me"]
+def create_agent():
+    llm = ChatOpenAI(
+        openai_api_key=GROQ_API_KEY,
+        openai_api_base="https://api.groq.com/openai/v1",
+        model="llama3-70b-8192",
+        temperature=0,
     )
 
-    query = ""
-    if mode == "Query":
-        query = st.text_input("Enter your question about the document:")
+    parser = PydanticOutputParser(pydantic_object=ResearchResponse)
 
-    #   Run button by which agent invoke
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                """
+                You are a research assistant that helps summarize and analyze documents.
 
-    if st.button("Run"):
-        if mode == "Challenge Me":
-            full_query = f"Document Content:\n{document_text}\n\nChallenge Me: Generate 3 logic/comprehension from the doc"
-        elif mode == "Query" and "query":
-            full_query = f"Document Content:\n{document_text}\n\nUser Question: {query}"
-        else:  # otherwise summarize
-             full_query = f"Document Content:\n{document_text}\n\nSummarize the document in ≤150 words. Use sections like Introduction, Key Points, Conclusion if applicable."
+                If the user provides a query → answer it using ONLY the document content.
+                If the user provides no query → summarize the document in ≤150 words.
+                The summary should include clear sections if possible: Introduction, Key Points, Conclusion.
 
-        with st.spinner("Running research agent...."):
-            raw_response = agent_executor.invoke({"query": full_query})
-            output_text = raw_response.get("output") or raw_response.get("result")
+                If the user asks for 'Challenge Me', generate 3 logic or comprehension questions from the document,
+                wait for user answers, then evaluate each response with justification (refer to document content).
 
+                Wrap the output in this format and provide no other text:\n{format_instructions}
+                """,
+            ),
+            ("placeholder", "{chat_history}"),
+            ("human", "{query}"),
+            ("placeholder", "{agent_scratchpad}"),
+        ]
+    ).partial(format_instructions=parser.get_format_instructions())
 
-            try:
-                structured_response = parser.parse(output_text)
+    tools = [search_tool, wiki_tool, save_tool]
 
+    agent = create_tool_calling_agent(
+        llm=llm,
+        prompt=prompt,
+        tools=tools
+    )
 
-                st.subheader("Research Result")
-                st.markdown(f"** Topic: {structured_response}")
-                st.markdown(f"Summary: \n{structured_response.summary}")
-                st.markdown(f"Sources: {', '.join(structured_response.sources) if structured_response.sources  else 'None'}")
-
-                if mode == "Challenge Me":
-                    st.subheader("🧪 Please answer the 3 questions above:")
-                    answers = []
-                    for i in range(1,4):
-                        ans = st.text_input(f"Your answer to Question {i}: ")
-                        answers.append(ans)
-
-                    if st.button("Submit Answers"):
-                        evaluation_query = (
-                            f"Document Content:\n{document_text}\n\n"
-                            f"User answered the challenge Me questions as follows: \n"
-                            f"Q1: {answers[0]}\nQ2: {answers[1]}\nQ3: {answers[2]}\n\n"
-                            f"Please evaluate each response, justify correctness, and reference the document."
-                        )
+    executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+    return executor, parser
 
 
-                        with st.spinner("Evaluating Your answers..."):
-                            raw_eval = agent_executor.invoke({"query": evaluation_query})
-                            eval_output = raw_eval.get("output") or raw_eval.get("result")
+#-----------------Streamlit began ----------------------
+if st.session_state.logged_in:
+    st.set_page_config(page_title="Research Assistant", layout="wide")
+    st.title("Smart Research Assistant")
 
+    upload_file = st.file_uploader("Upload a pdf or TXT document", type=["pdf", "txt"])
 
-                            st.subheader("Evaluation of your Answers")
-                            st.write(eval_output)
+    if upload_file:
+        document_text = extract_text_from_document(upload_file)
 
-            except Exception as e:
-                st.error(f"Error parsing response: {e}")
-                st.write("Raw Response: ", raw_response)
+        st.subheader("Document Preview")
+        st.text_area("Preview", document_text[:1000], height=200)
+
+        mode = st.radio(
+            "Choose a mode:",
+            options=["Query", "Just Summarize", "Challenge Me"]
+        )
+
+        query = ""
+        if mode == "Query":
+            query = st.text_input("Enter your question about the document:")
+
+        if st.button("Run"):
+            agent_executor, parser = create_agent()
+
+            if mode == "Challenge Me":
+                full_query = f"Document Content:\n{document_text}\n\nChallenge Me: Generate 3 logic/comprehension from the doc"
+            elif mode == "Query" and query:
+                full_query = f"Document Content:\n{document_text}\n\nUser Question: {query}"
+            else:
+                full_query = f"Document Content:\n{document_text}\n\nSummarize the document in ≤150 words. Use sections like Introduction, Key Points, Conclusion if applicable."
+
+            with st.spinner("Running research agent...."):
+                raw_response = agent_executor.invoke({"query": full_query})
+                output_text = raw_response.get("output") or raw_response.get("result")
+
+                try:
+                    structured_response = parser.parse(output_text)
+
+                    st.subheader("Research Result")
+                    st.markdown(f"**Topic:** {structured_response.topic}")
+                    st.markdown(f"**Summary:**\n{structured_response.summary}")
+                    st.markdown(f"**Sources:** {', '.join(structured_response.sources) if structured_response.sources else 'None'}")
+
+                    if mode == "Challenge Me":
+                        st.subheader("Please answer the 3 questions above:")
+                        answers = []
+                        for i in range(1, 4):
+                            ans = st.text_input(f"Your answer to Question {i}: ")
+                            answers.append(ans)
+
+                        if st.button("Submit Answers"):
+                            evaluation_query = (
+                                f"Document Content:\n{document_text}\n\n"
+                                f"User answered the Challenge Me questions as follows: \n"
+                                f"Q1: {answers[0]}\nQ2: {answers[1]}\nQ3: {answers[2]}\n\n"
+                                f"Please evaluate each response, justify correctness, and reference the document."
+                            )
+
+                            with st.spinner("Evaluating your answers..."):
+                                raw_eval = agent_executor.invoke({"query": evaluation_query})
+                                eval_output = raw_eval.get("output") or raw_eval.get("result")
+
+                                st.subheader("Evaluation of your Answers")
+                                st.write(eval_output)
+
+                except Exception as e:
+                    st.error(f"Error parsing response: {e}")
+                    st.write("Raw Response: ", raw_response)
