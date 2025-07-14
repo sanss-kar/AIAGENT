@@ -1,27 +1,27 @@
 
-# 📄 AI-Powered Research Assistant
+#  AI-Powered Research Assistant
 
 An **AI-powered web application** that reads PDF or TXT documents, summarizes them clearly, answers your questions, and even challenges you — all through an easy-to-use web interface with user login & registration.
 
 ---
 
-## 🚀 Features
+##  Features
 
-✅ Upload a PDF or TXT file.  
-✅ Get a clear, short summary of the document (with sections: *Introduction, Key Points, Conclusion*).  
-✅ Ask any question about the document and get an answer.  
-✅ Choose **Challenge Me** mode — it asks you 3 questions about the document and checks your answers.  
-✅ All answers are based **only on the document** (no made-up content).  
-✅ User authentication (Register & Login) with MySQL backend.  
+Upload a PDF or TXT file.  
+Get a clear, short summary of the document (with sections: *Introduction, Key Points, Conclusion*).  
+Ask any question about the document and get an answer.  
+Choose **Challenge Me** mode — it asks you 3 questions about the document and checks your answers.  
+All answers are based **only on the document** (no made-up content).  
+User authentication (Register & Login) with MySQL backend.  
 
 ---
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 | Tool / Library            | Purpose                                   |
 |----------------------------|-------------------------------------------|
 | **Streamlit**             | Web interface                            |
-| **LangChain**             | AI agent                    |
+| **LangChain**             | AI agent orchestration                   |
 | **Anthropic Claude 3.5 Sonnet / LLM** | Understand & process documents |
 | **PyPDF2**                | Extract text from PDF files              |
 | **Pydantic**              | Validate & structure outputs            |
@@ -30,16 +30,16 @@ An **AI-powered web application** that reads PDF or TXT documents, summarizes th
 
 ---
 
-## 📂 Setup & Run
+##  Setup & Run
 
-### 1️⃣ Clone the repo
+### 1. Clone the repo
 
 ```bash
 git clone https://github.com/your-username/your-repo.git
 cd your-repo
 ```
 
-### 2️⃣ Install dependencies
+### 2. Install dependencies
 
 You can use the provided `requirements.txt` or manually install:
 
@@ -55,7 +55,7 @@ pip install streamlit langchain anthropic python-dotenv pydantic PyPDF2 mysql-co
 
 ---
 
-### 3️⃣ Set up environment variables
+### 3. Set up environment variables
 
 Create a `.env` file in the project folder and add:
 
@@ -65,7 +65,7 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 
 ---
 
-### 4️⃣ Set up MySQL
+### 4. Set up MySQL
 
 Create a database and a table for users:
 
@@ -86,7 +86,7 @@ Update your MySQL credentials in the Python code where it connects to the databa
 
 ---
 
-### 5️⃣ Run the app
+### 5. Run the app
 
 ```bash
 streamlit run app.py
@@ -96,20 +96,20 @@ The app will open automatically in your browser.
 
 ---
 
-## 🌟 How to use the app?
+##  How to use the app?
 
-1️⃣ Open the app in your browser.  
-2️⃣ Register or login to access the features.  
-3️⃣ Upload your PDF or TXT file.  
-4️⃣ Choose a mode:
+1. Open the app in your browser.  
+2. Register or login to access the features.  
+3. Upload your PDF or TXT file.  
+4. Choose a mode:
 - **Query** → Ask any question about the document.
 - **Just Summarize** → Get a summary of the document.
 - **Challenge Me** → Answer 3 questions based on the document.
-5️⃣ View results directly on the page.
+5. View results directly on the page.
 
 ---
 
-## 🔗 API Endpoints (optional)
+##  API Endpoints (optional)
 
 If you prefer to interact via API instead of UI, here are some sample endpoints you can implement and test with Postman:
 
@@ -119,7 +119,7 @@ If you prefer to interact via API instead of UI, here are some sample endpoints 
 | `/login`         | POST   | Login existing user      |
 | `/summary`       | POST   | Upload document & get summary / Q&A |
 
-### 📥 Postman Collection
+###  Postman Collection
 
 A ready-to-use Postman collection file:  
 [`postman_collection.json`](postman_collection.json)  
@@ -129,7 +129,7 @@ You can import it in Postman:
 
 ---
 
-## 📄 Sample Postman Request
+##  Sample Postman Request
 
 ### Register
 ```http
@@ -167,7 +167,7 @@ Content-Type: application/json
 
 ---
 
-## 🧩 Workflow Architecture
+##  Workflow Architecture
 
 Below is the architecture and flow of the application:
 
@@ -226,11 +226,10 @@ Below is the architecture and flow of the application:
 
 ---
 
-## 🙋‍♀️ Contributions
+##  Contributions
 
 Feel free to fork and submit PRs.  
 If you have suggestions or find issues, please open an Issue or Discussion.
 
 ---
-
 
