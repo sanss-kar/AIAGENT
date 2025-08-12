@@ -1,22 +1,20 @@
 import streamlit as st
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from tools import search_tool, wiki_tool, save_tool
+from google import genai
 from PyPDF2 import PdfReader
 import mysql.connector
 import bcrypt
 import os
 
+# Load environment variables
 load_dotenv()
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-if not GROQ_API_KEY:
-    raise ValueError("GROQ_API_KEY not found in .env file")
+if not GEMINI_API_KEY:
+    raise ValueError("GOOGLE_API_KEY not found in .env file")
 
+# Database connection
 conn = mysql.connector.connect(
     host="localhost",
     user="root",
@@ -25,6 +23,7 @@ conn = mysql.connector.connect(
 )
 cursor = conn.cursor()
 
+# User registration
 def register_user(username, email, password):
     password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
     try:
@@ -37,6 +36,7 @@ def register_user(username, email, password):
     except mysql.connector.IntegrityError:
         return False
     
+# User login
 def login_user(username, password):
     cursor.execute(
         "SELECT password_hash FROM users WHERE username=%s", (username,)
@@ -46,6 +46,7 @@ def login_user(username, password):
         return bcrypt.checkpw(password.encode(), result[0].encode())
     return False
 
+# Session state for login
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -59,14 +60,14 @@ if not st.session_state.logged_in:
         password = st.text_input("Password", type="password")
         if st.button("Register"):
             if register_user(username, email, password):
-                st.success("Registered succesfully!")
+                st.success("Registered successfully!")
             else:
                 st.error("Username or email already exists.")
     
     else:
         st.subheader("Login")
         username = st.text_input("Username")
-        password = st.text_input("password")
+        password = st.text_input("Password", type="password")
         if st.button("Login"):
             if login_user(username, password):
                 st.session_state.logged_in = True
@@ -78,88 +79,52 @@ else:
     st.sidebar.success(f"Logged in as {st.session_state.username}")
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
-        
 
-
-
-class ResearchResponse(BaseModel):  
+# Pydantic model for response
+class ResearchResponse(BaseModel):
     topic: str
     summary: str
     sources: list[str]
     tools_used: list[str]
 
+# Extract text from PDF or TXT
 def extract_text_from_document(file) -> str:
     text = "" 
     if file.name.endswith(".pdf"):
-            reader = PdfReader(file)
-            for page in reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
+        reader = PdfReader(file)
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
     elif file.name.endswith(".txt"):
-       text = file.read().decode("utf-8")
+        text = file.read().decode("utf-8")
     else:
         st.error("Unsupported file format: Please use PDF or TXT.")
         st.stop()
     if not text.strip():
         st.error("No text found in document.")
         st.stop()
-
     return text
 
-
-
+# Create Gemini agent function
 def create_agent():
-    llm = ChatOpenAI(
-        openai_api_key=GROQ_API_KEY,
-        openai_api_base="https://api.groq.com/openai/v1",
-        model="llama3-70b-8192",
-        temperature=0,
-    )
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
-    parser = PydanticOutputParser(pydantic_object=ResearchResponse)
+    def run_gemini(prompt):
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",  # You can use gemini-1.5-pro for better quality
+            contents=prompt
+        )
+        return response.text.strip()
+    
+    return run_gemini
 
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                """
-                You are a research assistant that helps summarize and analyze documents.
-
-                If the user provides a query → answer it using ONLY the document content.
-                If the user provides no query → summarize the document in ≤150 words.
-                The summary should include clear sections if possible: Introduction, Key Points, Conclusion.
-
-                If the user asks for 'Challenge Me', generate 3 logic or comprehension questions from the document,
-                wait for user answers, then evaluate each response with justification (refer to document content).
-
-                Wrap the output in this format and provide no other text:\n{format_instructions}
-                """,
-            ),
-            ("placeholder", "{chat_history}"),
-            ("human", "{query}"),
-            ("placeholder", "{agent_scratchpad}"),
-        ]
-    ).partial(format_instructions=parser.get_format_instructions())
-
-    tools = [search_tool, wiki_tool, save_tool]
-
-    agent = create_tool_calling_agent(
-        llm=llm,
-        prompt=prompt,
-        tools=tools
-    )
-
-    executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-    return executor, parser
-
-
-#-----------------Streamlit began ----------------------
+# ----------------- Streamlit main app ----------------------
 if st.session_state.logged_in:
     st.set_page_config(page_title="Research Assistant", layout="wide")
-    st.title("Smart Research Assistant")
+    st.title("Smart Research Assistant (Gemini)")
 
-    upload_file = st.file_uploader("Upload a pdf or TXT document", type=["pdf", "txt"])
+    upload_file = st.file_uploader("Upload a PDF or TXT document", type=["pdf", "txt"])
 
     if upload_file:
         document_text = extract_text_from_document(upload_file)
@@ -177,49 +142,37 @@ if st.session_state.logged_in:
             query = st.text_input("Enter your question about the document:")
 
         if st.button("Run"):
-            agent_executor, parser = create_agent()
+            gemini_runner = create_agent()
 
             if mode == "Challenge Me":
-                full_query = f"Document Content:\n{document_text}\n\nChallenge Me: Generate 3 logic/comprehension from the doc"
+                full_query = f"Document Content:\n{document_text}\n\nChallenge Me: Generate 3 logic/comprehension questions from the document."
             elif mode == "Query" and query:
                 full_query = f"Document Content:\n{document_text}\n\nUser Question: {query}"
             else:
                 full_query = f"Document Content:\n{document_text}\n\nSummarize the document in ≤150 words. Use sections like Introduction, Key Points, Conclusion if applicable."
 
-            with st.spinner("Running research agent...."):
-                raw_response = agent_executor.invoke({"query": full_query})
-                output_text = raw_response.get("output") or raw_response.get("result")
+            with st.spinner("Running Gemini research agent..."):
+                output_text = gemini_runner(full_query)
 
-                try:
-                    structured_response = parser.parse(output_text)
+                st.subheader("Research Result")
+                st.write(output_text)
 
-                    st.subheader("Research Result")
-                    st.markdown(f"**Topic:** {structured_response.topic}")
-                    st.markdown(f"**Summary:**\n{structured_response.summary}")
-                    st.markdown(f"**Sources:** {', '.join(structured_response.sources) if structured_response.sources else 'None'}")
+                if mode == "Challenge Me":
+                    st.subheader("Please answer the 3 questions above:")
+                    answers = []
+                    for i in range(1, 4):
+                        ans = st.text_input(f"Your answer to Question {i}: ")
+                        answers.append(ans)
 
-                    if mode == "Challenge Me":
-                        st.subheader("Please answer the 3 questions above:")
-                        answers = []
-                        for i in range(1, 4):
-                            ans = st.text_input(f"Your answer to Question {i}: ")
-                            answers.append(ans)
+                    if st.button("Submit Answers"):
+                        evaluation_query = (
+                            f"Document Content:\n{document_text}\n\n"
+                            f"User answered the Challenge Me questions as follows:\n"
+                            f"Q1: {answers[0]}\nQ2: {answers[1]}\nQ3: {answers[2]}\n\n"
+                            f"Please evaluate each response, justify correctness, and reference the document."
+                        )
 
-                        if st.button("Submit Answers"):
-                            evaluation_query = (
-                                f"Document Content:\n{document_text}\n\n"
-                                f"User answered the Challenge Me questions as follows: \n"
-                                f"Q1: {answers[0]}\nQ2: {answers[1]}\nQ3: {answers[2]}\n\n"
-                                f"Please evaluate each response, justify correctness, and reference the document."
-                            )
-
-                            with st.spinner("Evaluating your answers..."):
-                                raw_eval = agent_executor.invoke({"query": evaluation_query})
-                                eval_output = raw_eval.get("output") or raw_eval.get("result")
-
-                                st.subheader("Evaluation of your Answers")
-                                st.write(eval_output)
-
-                except Exception as e:
-                    st.error(f"Error parsing response: {e}")
-                    st.write("Raw Response: ", raw_response)
+                        with st.spinner("Evaluating your answers..."):
+                            eval_output = gemini_runner(evaluation_query)
+                            st.subheader("Evaluation of your Answers")
+                            st.write(eval_output)
